@@ -2,6 +2,8 @@
 
 เกม Nonogram แบบเล่นคนเดียวหรือสร้างห้องเพื่อเล่นออนไลน์ร่วมกับเพื่อนแบบ realtime ข้อมูลห้องและกระดานเก็บบน Neon PostgreSQL
 
+[เปิดเว็บไซต์ Production](https://nonogram-online.vercel.app)
+
 ## Features
 
 - ตารางขนาด 5×5, 10×10, 15×15, 20×20 และ 25×25
@@ -12,7 +14,7 @@
 
 ## Local development
 
-ต้องใช้ Node.js 22.13 ขึ้นไป
+ต้องใช้ Node.js 24
 
 ```bash
 npm ci
