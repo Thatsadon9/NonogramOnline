@@ -117,23 +117,51 @@ function countSolutions(size, rowClues, columnClues) {
   );
 }
 
-for (const size of PUZZLE_SIZES) {
+function validatePuzzle(size, seed) {
   const minimumRuns = size * (size <= 5 ? 2.1 : size <= 10 ? 3.1 : size <= 15 ? 4.2 : size <= 20 ? 5.2 : 6.1);
-  for (const seed of PUZZLE_SEEDS[size]) {
-    const solution = generateSolution(size, seed);
-    const rows = Array.from({ length: size }, (_, row) => getClues(solution.slice(row * size, (row + 1) * size)));
-    const columns = Array.from({ length: size }, (_, column) => getClues(Array.from({ length: size }, (_, row) => solution[row * size + column])));
-    const fillRatio = solution.reduce((total, cell) => total + cell, 0) / solution.length;
-    const runCount = [...rows, ...columns].reduce((total, clues) => total + clues.length, 0);
+  const maximumRuns = size * (size <= 5 ? 3.2 : size <= 10 ? 4.4 : size <= 15 ? 6 : size <= 20 ? 8 : 9.2);
+  const solution = generateSolution(size, seed);
+  const rows = Array.from({ length: size }, (_, row) => getClues(solution.slice(row * size, (row + 1) * size)));
+  const columns = Array.from({ length: size }, (_, column) => getClues(Array.from({ length: size }, (_, row) => solution[row * size + column])));
+  const fillRatio = solution.reduce((total, cell) => total + cell, 0) / solution.length;
+  const runCount = [...rows, ...columns].reduce((total, clues) => total + clues.length, 0);
 
-    if (solution.length !== size * size) throw new Error(`${size}x${size} #${seed}: incorrect cell count`);
-    if (fillRatio < 0.38 || fillRatio > 0.64) throw new Error(`${size}x${size} #${seed}: fill ratio ${fillRatio}`);
-    if ([...rows, ...columns].some((clues) => clues.length === 0)) throw new Error(`${size}x${size} #${seed}: empty line`);
-    if ([...rows, ...columns].some((clues) => clues.length === 1 && clues[0] === size)) throw new Error(`${size}x${size} #${seed}: full line`);
-    if (runCount < minimumRuns) throw new Error(`${size}x${size} #${seed}: only ${runCount} runs`);
-    if (countSolutions(size, rows, columns) !== 1) throw new Error(`${size}x${size} #${seed}: solution is not unique`);
+  if (seed > 2_147_483_647) return "seed exceeds PostgreSQL integer range";
+  if (solution.length !== size * size) return "incorrect cell count";
+  if (fillRatio < 0.38 || fillRatio > 0.64) return `fill ratio ${fillRatio}`;
+  if ([...rows, ...columns].some((clues) => clues.length === 0)) return "empty line";
+  if ([...rows, ...columns].some((clues) => clues.length === 1 && clues[0] === size)) return "full line";
+  if (runCount < minimumRuns) return `only ${runCount} runs`;
+  if (runCount > maximumRuns) return `too fragmented (${runCount} runs)`;
+  if (countSolutions(size, rows, columns) !== 1) return "solution is not unique";
+  return null;
+}
+
+if (process.argv.includes("--search")) {
+  for (const size of PUZZLE_SIZES) {
+    const found = [];
+    // Keep v2 seeds below PostgreSQL int4's 2,147,483,647 ceiling.
+    const start = 2_000_000_000 + size * 100_000;
+    for (let offset = 1; offset <= 20_000 && found.length < 16; offset++) {
+      const seed = start + offset;
+      if (validatePuzzle(size, seed) === null) found.push(seed);
+    }
+    if (found.length < 16) throw new Error(`${size}x${size}: found only ${found.length} valid seeds`);
+    console.log(`  ${size}: [${found.join(", ")}],`);
   }
-  console.log(`✓ ${size}x${size}: ${PUZZLE_SEEDS[size].length} unique, balanced puzzles`);
+  process.exit(0);
+}
+
+for (const size of PUZZLE_SIZES) {
+  const grids = new Set();
+  for (const seed of PUZZLE_SEEDS[size]) {
+    const error = validatePuzzle(size, seed);
+    if (error) throw new Error(`${size}x${size} #${seed}: ${error}`);
+    const signature = generateSolution(size, seed).join("");
+    if (grids.has(signature)) throw new Error(`${size}x${size} #${seed}: duplicate puzzle`);
+    grids.add(signature);
+  }
+  console.log(`✓ ${size}x${size}: ${PUZZLE_SEEDS[size].length} unique, balanced, smooth puzzles`);
 }
 
 const checkedPuzzleCount = PUZZLE_SIZES.reduce((total, size) => total + PUZZLE_SEEDS[size].length, 0);

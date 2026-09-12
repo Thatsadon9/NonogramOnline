@@ -45,7 +45,7 @@ button { -webkit-tap-highlight-color:transparent; }
 .room-button { border-radius:4px; height:40px; background:var(--blue); }
 .workspace { display:grid; grid-template-columns:220px minmax(520px,1fr) 240px; min-height:calc(100vh - 72px); max-width:1540px; margin:auto; }
 .side-panel,.players-panel { padding:34px 24px; background:rgba(255,255,255,.86); }
-.side-panel { border-right:1px solid #dededb; display:flex; flex-direction:column; gap:34px; }
+.side-panel { border-right:1px solid #dededb; display:flex; flex-direction:column; gap:26px; }
 .players-panel { border-left:1px solid #dededb; }
 .eyebrow { margin:0 0 12px; font-size:11px; font-weight:900; color:#777a77; letter-spacing:.13em; text-transform:uppercase; }
 .size-list { display:grid; gap:5px; }
@@ -54,6 +54,16 @@ button { -webkit-tap-highlight-color:transparent; }
 .size-list button.active { background:#edf0fd; border-color:#bcc7f1; color:#233d9d; box-shadow:inset 3px 0 var(--blue); }
 .size-list span { font-weight:800; }
 .size-list small { font-size:11px; color:#878983; }
+.special-puzzles { border-top:1px solid #dededb; padding-top:24px; }
+.challenge-list { display:grid; gap:6px; }
+.challenge-list button { width:100%; border:1px solid transparent; border-radius:4px; background:transparent; padding:9px 10px; display:grid; gap:3px; color:#454744; text-align:left; cursor:pointer; }
+.challenge-list button:hover { background:#f1f1ed; }
+.challenge-list button.active { border-color:#9fd7b9; background:#e8f7ee; color:#126b43; box-shadow:inset 3px 0 #27a268; }
+.challenge-list button>span { display:flex; align-items:center; gap:8px; font-size:13px; }
+.challenge-list svg { width:16px; height:16px; color:var(--blue); }
+.challenge-list button.active svg { color:#168454; }
+.challenge-list small { padding-left:24px; color:#878983; font-size:10px; line-height:1.35; }
+.challenge-list button.active small { color:#4d7a63; }
 .rules { border-top:1px solid #dededb; padding-top:25px; }
 .rules p:not(.eyebrow) { font-size:13px; line-height:1.65; color:#626460; }
 .rules b { color:var(--ink); }
@@ -63,6 +73,7 @@ button { -webkit-tap-highlight-color:transparent; }
 .game-heading { width:100%; display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:18px; }
 .game-heading .eyebrow { margin-bottom:5px; color:var(--blue); }
 .game-heading h1 { margin:0; font-family:Georgia,serif; font-size:28px; letter-spacing:-.03em; }
+.challenge-caption { margin:6px 0 0; color:#686b67; font-size:12px; font-weight:700; }
 .game-meta { display:flex; gap:8px; }
 .game-meta span { height:34px; display:flex; align-items:center; gap:6px; border:1px solid #d8d8d4; background:#fff; padding:0 11px; font-size:12px; font-weight:800; }
 .game-meta svg { width:15px; color:var(--blue); }
@@ -144,7 +155,7 @@ button { -webkit-tap-highlight-color:transparent; }
 .code-input { text-transform:uppercase; letter-spacing:.14em; font-weight:800; }
 
 @media (max-width:1100px){.workspace{grid-template-columns:190px minmax(480px,1fr)}.players-panel{display:none}.play-area{padding-inline:28px}}
-@media (max-width:760px){.topbar{height:62px;padding:0 14px}.brand>span:last-child{display:none}.sync-state{display:none}.workspace{display:block;min-height:calc(100vh - 62px)}.side-panel{border:0;border-bottom:1px solid #ddd;padding:12px 14px}.side-panel .rules,.new-puzzle-link{display:none}.side-panel .eyebrow{margin:0 0 7px}.size-list{grid-template-columns:repeat(5,1fr)}.size-list button{padding:9px 3px;justify-content:center}.size-list small{display:none}.play-area{padding:20px 12px 34px}.game-heading h1{font-size:23px}.toolbar{margin-bottom:16px;position:sticky;top:70px;z-index:10}.toolbar button{min-width:35px;padding:0 8px;font-size:0}.toolbar button svg{margin:0}.board-scroll{margin-inline:0}.nonogram-board{margin-left:auto;margin-right:auto}.success-card{grid-template-columns:auto 1fr}.success-card button{grid-column:1/-1}.join-row{grid-template-columns:1fr}.join-row [data-slot="button"]{width:100%}.room-button{padding-inline:12px}}
+@media (max-width:760px){.topbar{height:62px;padding:0 14px}.brand>span:last-child{display:none}.sync-state{display:none}.workspace{display:block;min-height:calc(100vh - 62px)}.side-panel{border:0;border-bottom:1px solid #ddd;padding:12px 14px;gap:12px}.side-panel .rules,.new-puzzle-link{display:none}.side-panel .eyebrow{margin:0 0 7px}.size-list{grid-template-columns:repeat(5,1fr)}.size-list button{padding:9px 3px;justify-content:center}.size-list small{display:none}.special-puzzles{padding-top:11px}.challenge-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.challenge-list button{min-width:0;padding:8px 6px;text-align:center}.challenge-list button>span{justify-content:center;gap:5px;font-size:12px}.challenge-list small{padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px}.play-area{padding:20px 12px 34px}.game-heading h1{font-size:23px}.toolbar{margin-bottom:16px;position:sticky;top:70px;z-index:10}.toolbar button{min-width:35px;padding:0 8px;font-size:0}.toolbar button svg{margin:0}.board-scroll{margin-inline:0}.nonogram-board{margin-left:auto;margin-right:auto}.success-card{grid-template-columns:auto 1fr}.success-card button{grid-column:1/-1}.join-row{grid-template-columns:1fr}.join-row [data-slot="button"]{width:100%}.room-button{padding-inline:12px}}
 @media (max-width:520px){.room-dialog{width:calc(100% - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;gap:18px;padding:24px 18px 18px;box-shadow:5px 5px 0 #bcc7f1}.room-dialog-header{grid-template-columns:40px 1fr;gap:11px;padding-right:27px}.room-dialog-icon{width:40px;height:40px}.room-dialog h2{font-size:21px}.room-dialog [data-slot="dialog-description"]{font-size:12px}.room-dialog [data-slot="dialog-close"]{top:14px;right:13px}}
 @media (max-width:420px){.game-heading{align-items:flex-start}.game-meta span{padding:0 8px}.cycle-hint{gap:5px;padding-inline:3px;font-size:11px}.cycle-hint svg,.cycle-filled,.cycle-empty{width:13px;height:13px}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}

@@ -3,6 +3,8 @@ import test from "node:test";
 import { acceptsRevision, cellsEqual, diffCells, enqueueByKey, mergePendingCells, nextPollInterval } from "../lib/room-sync.ts";
 import { autoCompletedKeys, clues, isSolvedByClues } from "../lib/nonogram.ts";
 import { createProgressStore } from "../lib/progress.ts";
+import { challengeForMode, challengePeriodKey, findCurrentChallenge } from "../lib/challenges.ts";
+import { generateSolution, PUZZLE_SEEDS } from "../lib/puzzle-generator.ts";
 
 test("rejects an older or unchanged room snapshot", () => {
   assert.equal(acceptsRevision(12, 11), false);
@@ -130,4 +132,34 @@ test("progress store persists, validates, and keeps best times", () => {
 
   store.clearProgress("10:1000031");
   assert.equal(store.loadProgress("10:1000031"), null);
+});
+
+test("keeps legacy puzzle seeds byte-for-byte compatible", () => {
+  assert.equal(
+    generateSolution(10, 1000042).join(""),
+    "0000001111110100111100101011011001110101000111111000011111101011111001011011100001000111100100001100",
+  );
+});
+
+test("special puzzles stay fixed for their Bangkok day, ISO week, and month", () => {
+  const saturdayMorning = new Date("2026-09-11T17:00:00.000Z");
+  const saturdayEvening = new Date("2026-09-12T16:59:59.000Z");
+  const sunday = new Date("2026-09-13T12:00:00.000Z");
+  const nextMonday = new Date("2026-09-13T17:00:00.000Z");
+  const october = new Date("2026-09-30T17:00:00.000Z");
+
+  assert.deepEqual(challengeForMode("daily", saturdayMorning), challengeForMode("daily", saturdayEvening));
+  assert.notEqual(challengePeriodKey("daily", saturdayMorning), challengePeriodKey("daily", sunday));
+  assert.equal(challengePeriodKey("weekly", saturdayMorning), challengePeriodKey("weekly", sunday));
+  assert.notEqual(challengePeriodKey("weekly", sunday), challengePeriodKey("weekly", nextMonday));
+  assert.notEqual(challengePeriodKey("monthly", saturdayMorning), challengePeriodKey("monthly", october));
+});
+
+test("special puzzles only select seeds from the verified puzzle bank", () => {
+  const now = new Date("2026-09-12T12:00:00.000Z");
+  for (const mode of ["daily", "weekly", "monthly"] as const) {
+    const challenge = challengeForMode(mode, now);
+    assert.equal(PUZZLE_SEEDS[challenge.size].includes(challenge.seed), true);
+    assert.equal(findCurrentChallenge(challenge.size, challenge.seed, now)?.mode, mode);
+  }
 });

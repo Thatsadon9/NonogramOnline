@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, Copy, Grid3X3, Hand, LogIn, Pencil, Plus, Redo2, RotateCcw, Share2, Undo2, Users, Volume2, VolumeX, X } from "lucide-react";
+import { CalendarCheck2, CalendarClock, CalendarDays, Check, Copy, Grid3X3, Hand, LogIn, Pencil, Plus, Redo2, RotateCcw, Share2, Undo2, Users, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -11,6 +11,7 @@ import { CellButton, type CellHandlers } from "@/components/game/cell";
 import { ClueButton } from "@/components/game/clue-button";
 import { TimeDisplay } from "@/components/game/time-display";
 import { generateSolution, pickPuzzleSeed, PUZZLE_SEEDS, PUZZLE_SIZES, type PuzzleSize } from "@/lib/puzzle-generator";
+import { CHALLENGE_MODES, challengeForMode, findCurrentChallenge, isChallengeMode, type Challenge, type ChallengeMode } from "@/lib/challenges";
 import { autoCompletedKeys, computeColClues, computeRowClues, isSolvedByClues, type CellValue } from "@/lib/nonogram";
 import { acceptsRevision, mergePendingCells, type PendingCell } from "@/lib/room-sync";
 import { RoomClient, type Player, type RoomPatch, type RoomSnapshot, type RoomStatus } from "@/lib/room-client";
@@ -25,6 +26,7 @@ type ErrorResponse = { error?: string };
 const COLORS = ["#3457D5", "#E4572E", "#138A72", "#8A4FFF", "#DB8B00"];
 const INITIAL_SEED = PUZZLE_SEEDS[10][9];
 const EMPTY_COMPLETED_CLUES = new Set<string>();
+const CHALLENGE_ICONS = { daily: CalendarCheck2, weekly: CalendarDays, monthly: CalendarClock } as const;
 
 async function readJson<T>(response: Response): Promise<T> {
   return await response.json() as T;
@@ -45,6 +47,10 @@ function playerIdentity(): Player {
 
 function formatSeconds(total: number) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function formatPuzzleId(seed: number) {
+  return new Intl.NumberFormat("en-US").format(seed % 10_000_000);
 }
 
 export default function Home() {
@@ -73,6 +79,7 @@ export default function Home() {
   const [paintLock, setPaintLock] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [bestRecord, setBestRecord] = useState<{ key: string; value: number | null } | null>(null);
+  const [activeChallenge, setActiveChallenge] = useState<Challenge | null>(null);
   const [me, setMe] = useState<Player>({ id: "", name: "ผู้เล่น", color: COLORS[0], cursorIndex: null });
 
   const identity = useRef<Player>({ id: "", name: "ผู้เล่น", color: COLORS[0], cursorIndex: null });
@@ -124,10 +131,26 @@ export default function Home() {
       setPaintLock(localStorage.getItem("nonogram-paint-lock") === "1");
     } catch { /* private mode */ }
     setSoundOn(sfxEnabled());
-    const urlRoom = new URLSearchParams(location.search).get("room");
+    const params = new URLSearchParams(location.search);
+    const urlRoom = params.get("room");
     if (urlRoom) { setJoinCode(urlRoom.toUpperCase()); setRoomOpen(true); return; }
-    const stored = progress.loadProgress(`10:${INITIAL_SEED}`);
-    if (stored && stored.cells.length === 100) {
+    const requestedChallenge = params.get("challenge");
+    const challenge = isChallengeMode(requestedChallenge) ? challengeForMode(requestedChallenge) : null;
+    const initialSize = challenge?.size ?? 10;
+    const initialSeed = challenge?.seed ?? INITIAL_SEED;
+    const initialKey = `${initialSize}:${initialSeed}`;
+    if (challenge) {
+      const emptyCells: CellValue[] = Array(initialSize * initialSize).fill(0);
+      setActiveChallenge(challenge);
+      setSize(initialSize);
+      setSeed(initialSeed);
+      seedRef.current = initialSeed;
+      cellsRef.current = emptyCells;
+      serverCellsRef.current = emptyCells;
+      setCells(emptyCells);
+    }
+    const stored = progress.loadProgress(initialKey);
+    if (stored && stored.cells.length === initialSize * initialSize) {
       const restored = stored.cells.map((value) => (value === 1 || value === 2 ? value : 0) as CellValue);
       cellsRef.current = restored;
       serverCellsRef.current = restored;
@@ -217,6 +240,7 @@ export default function Home() {
     serverCellsRef.current = data.cells as CellValue[];
     setSize(data.size as PuzzleSize);
     setSeed(data.seed);
+    setActiveChallenge(findCurrentChallenge(data.size as PuzzleSize, data.seed));
     syncServerElapsed(data.elapsedSeconds ?? 0);
     renderServerWithPending();
     if ((data.elapsedSeconds ?? 0) > 0 || data.cells.some(Boolean) || pendingCellsRef.current.size) setStarted(true);
@@ -450,9 +474,7 @@ export default function Home() {
     setFuture((items) => items.slice(1));
   };
 
-  const replacePuzzle = async (nextSize: PuzzleSize) => {
-    const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
-    const nextSeed = pickPuzzleSeed(nextSize, randomValue, nextSize === size ? seed : undefined);
+  const changePuzzle = async (nextSize: PuzzleSize, nextSeed: number, challenge: Challenge | null) => {
     const nextCells: CellValue[] = Array(nextSize * nextSize).fill(0);
 
     if (roomRef.current) {
@@ -469,17 +491,38 @@ export default function Home() {
       return;
     }
 
-    progress.clearProgress(puzzleKey);
+    // Timed challenges are resumable for their whole period. Normal random
+    // puzzles keep the previous reset-on-change behaviour.
+    if (!activeChallenge) progress.clearProgress(puzzleKey);
+    const stored = challenge ? progress.loadProgress(`${nextSize}:${nextSeed}`) : null;
+    const restoredCells = stored?.cells.length === nextCells.length
+      ? stored.cells.map((value) => (value === 1 || value === 2 ? value : 0) as CellValue)
+      : nextCells;
     seedRef.current = nextSeed;
-    cellsRef.current = nextCells;
-    serverCellsRef.current = nextCells;
+    cellsRef.current = restoredCells;
+    serverCellsRef.current = restoredCells;
+    solvedRef.current = false;
     setSize(nextSize);
     setSeed(nextSeed);
-    setCells(nextCells);
+    setCells(restoredCells);
+    setActiveChallenge(challenge);
+    setClueProgress({ puzzleKey: `${nextSize}:${nextSeed}`, completed: new Set() });
     setHistoryStack([]);
     setFuture([]);
-    setElapsed(0);
-    setStarted(false);
+    setElapsed(stored?.elapsed ?? 0);
+    setStarted(stored?.started ?? false);
+    window.history.replaceState(null, "", challenge ? `?challenge=${challenge.mode}` : location.pathname);
+  };
+
+  const replacePuzzle = async (nextSize: PuzzleSize) => {
+    const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
+    const nextSeed = pickPuzzleSeed(nextSize, randomValue, nextSize === size ? seed : undefined);
+    await changePuzzle(nextSize, nextSeed, null);
+  };
+
+  const playChallenge = async (mode: ChallengeMode) => {
+    const challenge = challengeForMode(mode);
+    await changePuzzle(challenge.size, challenge.seed, challenge);
   };
 
   const createRoom = async () => {
@@ -637,13 +680,26 @@ export default function Home() {
 
       <section className="workspace">
         <aside className="side-panel">
-          <div><p className="eyebrow">ขนาดตาราง</p><div className="size-list">{PUZZLE_SIZES.map((value) => <button key={value} className={size === value ? "active" : ""} onClick={() => replacePuzzle(value)}><span>{value} × {value}</span><small>{value <= 5 ? "ง่าย" : value <= 10 ? "ปานกลาง" : value <= 15 ? "ท้าทาย" : "ผู้เชี่ยวชาญ"}</small></button>)}</div></div>
+          <div><p className="eyebrow">ขนาดตาราง</p><div className="size-list">{PUZZLE_SIZES.map((value) => <button key={value} className={!activeChallenge && size === value ? "active" : ""} onClick={() => replacePuzzle(value)}><span>{value} × {value}</span><small>{value <= 5 ? "ง่าย" : value <= 10 ? "ปานกลาง" : value <= 15 ? "ท้าทาย" : "ผู้เชี่ยวชาญ"}</small></button>)}</div></div>
+          <div className="special-puzzles">
+            <p className="eyebrow">โจทย์พิเศษ</p>
+            <div className="challenge-list">
+              {CHALLENGE_MODES.map((mode) => {
+                const challenge = challengeForMode(mode);
+                const Icon = CHALLENGE_ICONS[mode];
+                return <button key={mode} type="button" className={activeChallenge?.mode === mode ? "active" : ""} onClick={() => playChallenge(mode)} aria-pressed={activeChallenge?.mode === mode}>
+                  <span><Icon /><b>{challenge.title}</b></span>
+                  <small>{challenge.periodLabel}</small>
+                </button>;
+              })}
+            </div>
+          </div>
           <div className="rules"><p className="eyebrow">วิธีเล่น</p><p>เติมช่องให้ตรงกับตัวเลขด้านบนและด้านซ้าย ตัวเลขแต่ละชุดบอกจำนวนช่องทึบที่ติดกัน</p><p><b>คลิกซ้าย</b> เพื่อวนจาก เติม → × → ว่าง<br /><b>คลิกขวา</b> เพื่อสลับเครื่องหมาย ×<br /><b>หน้าจอสัมผัส</b> เปิดปุ่มดินสอเพื่อลากวาด ปิดเพื่อเลื่อนบอร์ด</p></div>
           <button className="new-puzzle-link" onClick={() => replacePuzzle(size)}><RotateCcw /> สุ่มโจทย์ใหม่</button>
         </aside>
 
         <section className="play-area">
-          <div className="game-heading"><div><p className="eyebrow">PUZZLE #{seed}</p><h1>{size} × {size} Nonogram</h1></div><div className="game-meta"><TimeDisplay elapsed={elapsed} /></div></div>
+          <div className="game-heading"><div><p className="eyebrow">{activeChallenge ? `SPECIAL ${activeChallenge.title.toUpperCase()}` : `PUZZLE #${formatPuzzleId(seed)}`}</p><h1>{size} × {size} Nonogram</h1>{activeChallenge && <p className="challenge-caption">โจทย์ประจำ{activeChallenge.mode === "daily" ? "วัน" : activeChallenge.mode === "weekly" ? "สัปดาห์" : "เดือน"} · {activeChallenge.periodLabel}</p>}</div><div className="game-meta"><TimeDisplay elapsed={elapsed} /></div></div>
           <div className="toolbar" role="toolbar" aria-label="คำแนะนำและประวัติการเล่น">
             <span className="cycle-hint"><i className="cycle-filled" /> เติม <b>→</b><X /> กากบาท <b>→</b><i className="cycle-empty" /> ว่าง</span><i className="toolbar-divider" />
             <button onClick={undo} disabled={!canUndo} aria-label="ย้อนกลับ"><Undo2 /></button><button onClick={redo} disabled={!canRedo} aria-label="ทำซ้ำ"><Redo2 /></button>

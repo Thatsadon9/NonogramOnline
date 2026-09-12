@@ -21,7 +21,7 @@ function validSize(value: unknown): value is PuzzleSize {
 }
 
 function validSeed(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647;
 }
 
 function validGrid(value: unknown, length: number, allowed: readonly number[]): value is number[] {
