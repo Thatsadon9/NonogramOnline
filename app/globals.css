@@ -113,6 +113,14 @@ button { -webkit-tap-highlight-color:transparent; }
 .player-list { display:grid; gap:14px; padding:20px 0; }.player { display:flex; gap:10px; align-items:center; }.avatar { width:34px; height:34px; display:grid; place-items:center; border-radius:50%; color:#fff; font-weight:900; }.player div { display:grid; }.player b { font-size:13px; }.player small { font-size:11px; color:#7a7c78; margin-top:2px; }
 .empty-players { padding:34px 8px; color:#7a7c78; text-align:center; font-size:13px; line-height:1.5; }.empty-players svg { width:32px; opacity:.45; margin:auto; }
 .room-code { border:1px dashed #b9b9b4; background:#f7f7f3; padding:12px; display:flex; align-items:center; justify-content:space-between; }.room-code small { color:#747671; }.room-code b { letter-spacing:.12em; }
+.mobile-room-strip { display:none; }
+.strip-players { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.strip-player { display:inline-flex; align-items:center; gap:6px; border:1px solid #dededb; background:#fff; padding:3px 10px 3px 4px; border-radius:999px; font-size:12px; font-weight:700; }
+.strip-player .avatar { width:22px; height:22px; font-size:11px; }
+.strip-player-name { max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.strip-share { display:inline-flex; align-items:center; gap:6px; border:1px dashed #b9b9b4; background:#f7f7f3; padding:6px 11px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.08em; color:var(--ink); cursor:pointer; }
+.strip-share svg { width:14px; color:var(--blue); }
+@media (max-width:1100px){ .mobile-room-strip { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:14px; } }
 .share-button { width:100%; margin-top:8px; border-radius:3px; }.collab-note { margin-top:28px; border-top:1px solid #dededb; padding-top:20px; display:flex; gap:10px; color:#737570; }.collab-note svg { width:18px; flex:none; color:var(--blue); }.collab-note p { margin:0; font-size:12px; line-height:1.5; }.collab-note b { color:var(--ink); }
 .room-dialog { width:min(480px,calc(100% - 24px)); overflow:hidden; gap:22px; padding:28px; border:2px solid var(--ink); border-radius:8px; background:#fff; color:var(--ink); box-shadow:9px 9px 0 #bcc7f1; }
 .room-dialog:before { content:""; position:absolute; inset:0 0 auto; height:5px; background:var(--blue); }

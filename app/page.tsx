@@ -152,6 +152,19 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [timerRunning]);
 
+  // Track the board viewport so cells can shrink to fit narrow screens.
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const [boardWidth, setBoardWidth] = useState(0);
+  useEffect(() => {
+    const element = boardScrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) setBoardWidth(Math.floor(entry.contentRect.width));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
@@ -518,8 +531,12 @@ export default function Home() {
   };
 
   const shareRoom = async () => {
-    await navigator.clipboard.writeText(`${location.origin}${location.pathname}?room=${room}`);
-    setNotice("คัดลอกลิงก์ห้องแล้ว");
+    try {
+      await navigator.clipboard.writeText(`${location.origin}${location.pathname}?room=${room}`);
+      setNotice("คัดลอกลิงก์ห้องแล้ว");
+    } catch {
+      setNotice(`รหัสห้อง ${room} — คัดลอกได้จากปุ่มเล่นกับเพื่อน`);
+    }
   };
 
   const toggleClue = useCallback((key: string) => {
@@ -585,8 +602,17 @@ export default function Home() {
   const canUndo = room ? strokeStack.some((stroke) => stroke.acked) : historyStack.length > 0;
   const canRedo = room ? redoStack.length > 0 : future.length > 0;
 
-  const cellSize = size <= 5 ? 52 : size <= 10 ? 38 : size <= 15 ? 29 : size <= 20 ? 24 : 21;
-  const boardStyle = { "--cell": `${cellSize}px`, "--rows": size, "--cols": size, "--row-clues": Math.max(...rowClues.map((item) => item.length)), "--col-clues": Math.max(...colClues.map((item) => item.length)) } as React.CSSProperties;
+  const maxRowClueCount = Math.max(...rowClues.map((item) => item.length));
+  const maxColClueCount = Math.max(...colClues.map((item) => item.length));
+  const cellSize = useMemo(() => {
+    const base = size <= 5 ? 52 : size <= 10 ? 38 : size <= 15 ? 29 : size <= 20 ? 24 : 21;
+    // Shrink cells to fit the viewport, but never below a comfortable tap
+    // target — boards that still don't fit stay in the scrollable area.
+    if (!boardWidth) return base;
+    const available = boardWidth - (maxRowClueCount * 24 + 22) - 12;
+    return Math.max(20, Math.min(base, Math.floor(available / size)));
+  }, [size, boardWidth, maxRowClueCount]);
+  const boardStyle = { "--cell": `${cellSize}px`, "--rows": size, "--cols": size, "--row-clues": maxRowClueCount, "--col-clues": maxColClueCount } as React.CSSProperties;
 
   return (
     <main className="game-shell" onPointerUp={endDrag} onPointerLeave={endDrag}>
@@ -624,7 +650,20 @@ export default function Home() {
             <button className={`paint-toggle ${paintLock ? "is-on" : ""}`} onClick={togglePaintLock} aria-pressed={paintLock} aria-label={paintLock ? "ปิดโหมดวาด ให้เลื่อนหน้าจอได้" : "เปิดโหมดวาด สำหรับลากวาดบนหน้าจอสัมผัส"} title={paintLock ? "โหมดวาดเปิดอยู่ กดเพื่อให้เลื่อนบอร์ดได้" : "กดเพื่อล็อกหน้าจอไว้ลากวาด"}>{paintLock ? <Pencil /> : <Hand />}</button>
             <button onClick={toggleSound} aria-label={soundOn ? "ปิดเสียง" : "เปิดเสียง"} title={soundOn ? "ปิดเสียงเอฟเฟกต์" : "เปิดเสียงเอฟเฟกต์"}>{soundOn ? <Volume2 /> : <VolumeX />}</button>
           </div>
-          <div className="board-scroll"><div className={`nonogram-board ${paintLock ? "paint-lock" : ""}`} style={boardStyle} onContextMenu={(event) => event.preventDefault()}>
+          {room && (
+            <div className="mobile-room-strip">
+              <div className="strip-players">
+                {(players.length ? players : [me]).map((player) => (
+                  <span className="strip-player" key={player.id}>
+                    <span className="avatar" style={{ background: player.color }}>{player.name.slice(0, 1).toUpperCase()}</span>
+                    <span className="strip-player-name">{player.id === me.id ? "คุณ" : player.name}</span>
+                  </span>
+                ))}
+              </div>
+              <button type="button" className="strip-share" onClick={shareRoom}><Copy /> {room}</button>
+            </div>
+          )}
+          <div className="board-scroll" ref={boardScrollRef}><div className={`nonogram-board ${paintLock ? "paint-lock" : ""}`} style={boardStyle} onContextMenu={(event) => event.preventDefault()}>
             <div className="corner-cell"><span>ROWS</span><span>COLS</span></div>
             <div className="column-clues">{colClues.map((items, col) => <div key={col} className={`col-clue ${col > 0 && col % 5 === 0 ? "major-left" : ""}`}>
               {items.map((item, i) => { const key = `column-${col}-${i}`; return <ClueButton key={key} clueKey={key} label={`คอลัมน์ ${col + 1}`} item={item} completed={completedClues.has(key) || autoKeys.has(key)} onToggle={toggleClue} />; })}
