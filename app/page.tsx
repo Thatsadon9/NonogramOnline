@@ -13,9 +13,11 @@ type Cell = 0 | 1 | 2;
 type Player = { id: string; name: string; color: string };
 type RoomState = { code: string; size: PuzzleSize; seed: number; solution: number[]; cells: Cell[]; revision: number; completed: boolean; players?: Player[] };
 type ErrorResponse = { error?: string };
+type ClueProgress = { puzzleKey: string; completed: Set<string> };
 
 const COLORS = ["#3457D5", "#E4572E", "#138A72", "#8A4FFF", "#DB8B00"];
 const INITIAL_SEED = PUZZLE_SEEDS[10][9];
+const EMPTY_COMPLETED_CLUES = new Set<string>();
 
 async function readJson<T>(response: Response): Promise<T> {
   return await response.json() as T;
@@ -65,6 +67,10 @@ export default function Home() {
   const [started, setStarted] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState<Cell>(1);
+  const [clueProgress, setClueProgress] = useState<ClueProgress>(() => ({
+    puzzleKey: `10:${INITIAL_SEED}`,
+    completed: new Set(),
+  }));
   const identity = useRef<Player>({ id: "", name: "ผู้เล่น", color: COLORS[0] });
   const roomRef = useRef("");
   const seedRef = useRef(seed);
@@ -94,6 +100,8 @@ export default function Home() {
 
   const rowClues = useMemo(() => Array.from({ length: size }, (_, row) => clues(solution.slice(row * size, (row + 1) * size))), [size, solution]);
   const colClues = useMemo(() => Array.from({ length: size }, (_, col) => clues(Array.from({ length: size }, (_, row) => solution[row * size + col]))), [size, solution]);
+  const puzzleKey = `${size}:${seed}`;
+  const completedClues = clueProgress.puzzleKey === puzzleKey ? clueProgress.completed : EMPTY_COMPLETED_CLUES;
   const renderServerWithPending = useCallback(() => {
     const merged = mergePendingCells(serverCellsRef.current, pendingCellsRef.current);
     cellsRef.current = merged;
@@ -269,6 +277,15 @@ export default function Home() {
     setHistoryStack((items) => [...items, cellsRef.current]); cellsRef.current = next; setCells(next); setFuture((items) => items.slice(1));
   };
 
+  const toggleClue = (key: string) => {
+    setClueProgress((current) => {
+      const next = new Set(current.puzzleKey === puzzleKey ? current.completed : undefined);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { puzzleKey, completed: next };
+    });
+  };
+
   const cellSize = size <= 5 ? 52 : size <= 10 ? 38 : size <= 15 ? 29 : size <= 20 ? 24 : 21;
   const boardStyle = { "--cell": `${cellSize}px`, "--rows": size, "--cols": size, "--row-clues": Math.max(...rowClues.map((item) => item.length)), "--col-clues": Math.max(...colClues.map((item) => item.length)) } as React.CSSProperties;
 
@@ -308,8 +325,20 @@ export default function Home() {
           </div>
           <div className="board-scroll"><div className="nonogram-board" style={boardStyle} onContextMenu={(event) => event.preventDefault()}>
             <div className="corner-cell"><span>ROWS</span><span>COLS</span></div>
-            <div className="column-clues">{colClues.map((items, col) => <div key={col} className={`col-clue ${col > 0 && col % 5 === 0 ? "major-left" : ""}`}>{items.map((item, i) => <span key={i}>{item}</span>)}</div>)}</div>
-            <div className="row-clues">{rowClues.map((items, row) => <div key={row} className={`row-clue ${row > 0 && row % 5 === 0 ? "major-top" : ""}`}>{items.map((item, i) => <span key={i}>{item}</span>)}</div>)}</div>
+            <div className="column-clues">{colClues.map((items, col) => <div key={col} className={`col-clue ${col > 0 && col % 5 === 0 ? "major-left" : ""}`}>
+              {items.map((item, i) => {
+                const key = `column-${col}-${i}`;
+                const completed = completedClues.has(key);
+                return <button type="button" key={key} className={`clue-number ${completed ? "is-complete" : ""}`} aria-label={`คอลัมน์ ${col + 1} เลข ${item}${completed ? " ทำครบแล้ว" : ""}`} aria-pressed={completed} title={completed ? "กดเพื่อยกเลิกเครื่องหมาย" : "กดเพื่อทำเครื่องหมายว่าครบแล้ว"} onClick={() => toggleClue(key)}>{item}</button>;
+              })}
+            </div>)}</div>
+            <div className="row-clues">{rowClues.map((items, row) => <div key={row} className={`row-clue ${row > 0 && row % 5 === 0 ? "major-top" : ""}`}>
+              {items.map((item, i) => {
+                const key = `row-${row}-${i}`;
+                const completed = completedClues.has(key);
+                return <button type="button" key={key} className={`clue-number ${completed ? "is-complete" : ""}`} aria-label={`แถว ${row + 1} เลข ${item}${completed ? " ทำครบแล้ว" : ""}`} aria-pressed={completed} title={completed ? "กดเพื่อยกเลิกเครื่องหมาย" : "กดเพื่อทำเครื่องหมายว่าครบแล้ว"} onClick={() => toggleClue(key)}>{item}</button>;
+              })}
+            </div>)}</div>
             <div className="cells" style={{ gridTemplateColumns: `repeat(${size}, var(--cell))` }}>{cells.map((value, index) => { const row = Math.floor(index / size); const col = index % size; const stateLabel = value === 1 ? "เติมแล้ว" : value === 2 ? "กากบาท" : "ว่าง"; return <button key={index} aria-label={`แถว ${row + 1} คอลัมน์ ${col + 1} ${stateLabel}`} className={`cell state-${value} ${row > 0 && row % 5 === 0 ? "major-top" : ""} ${col > 0 && col % 5 === 0 ? "major-left" : ""}`} onPointerDown={(event) => startDrag(index, event)} onPointerEnter={() => dragging && paint(index, dragValue, false)} onContextMenu={(event) => { event.preventDefault(); paint(index, cellsRef.current[index] === 2 ? 0 : 2); }}>{value === 2 && <X />}</button>; })}</div>
           </div></div>
           {solved && <div className="success-card"><span><Check /></span><div><b>สำเร็จ!</b><p>ทุกคนช่วยกันแก้ภาพนี้เรียบร้อยแล้ว</p></div><Button onClick={() => replacePuzzle(size)}>โจทย์ถัดไป</Button></div>}
