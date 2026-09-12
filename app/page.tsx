@@ -281,7 +281,7 @@ export default function Home() {
           <Dialog open={roomOpen} onOpenChange={setRoomOpen}>
             <DialogTrigger asChild><Button className="room-button"><Users /> {room || "เล่นกับเพื่อน"}</Button></DialogTrigger>
             <DialogContent className="room-dialog">
-              <DialogHeader><DialogTitle>เล่นด้วยกันแบบออนไลน์</DialogTitle><DialogDescription>ตั้งชื่อ แล้วสร้างห้องใหม่หรือใส่รหัสจากเพื่อน ทุกช่องจะซิงก์ผ่าน Neon</DialogDescription></DialogHeader>
+              <DialogHeader className="room-dialog-header"><span className="room-dialog-icon"><Users /></span><div><DialogTitle>เล่นด้วยกันแบบออนไลน์</DialogTitle><DialogDescription>ตั้งชื่อ แล้วสร้างห้องใหม่หรือใส่รหัสจากเพื่อน ทุกช่องจะซิงก์ผ่าน Neon</DialogDescription></div></DialogHeader>
               <label className="field-label">ชื่อของคุณ<Input value={displayName} maxLength={24} onChange={(e) => setDisplayName(e.target.value)} placeholder="ชื่อผู้เล่น" /></label>
               <div className="room-choice">
                 <Button onClick={createRoom} className="create-room"><Plus /> สร้างห้องจากเกมนี้</Button>
