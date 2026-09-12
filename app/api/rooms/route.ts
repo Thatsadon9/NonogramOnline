@@ -26,7 +26,7 @@ function validGrid(value: unknown, length: number, allowed: readonly number[]): 
   return Array.isArray(value) && value.length === length && value.every((cell) => typeof cell === "number" && allowed.includes(cell));
 }
 
-function roomPayload(row: Record<string, unknown>, players: Record<string, unknown>[] = []) {
+function roomPayload(row: Record<string, unknown>, players?: Record<string, unknown>[]) {
   return {
     code: row.room_code,
     size: Number(row.size),
@@ -36,7 +36,7 @@ function roomPayload(row: Record<string, unknown>, players: Record<string, unkno
     revision: Number(row.revision),
     completed: Boolean(row.completed),
     updatedAt: row.updated_at,
-    players: players.map((player) => ({
+    players: players?.map((player) => ({
       id: player.player_id,
       name: player.display_name,
       color: player.color,
@@ -91,17 +91,22 @@ export async function POST(request: NextRequest) {
     if (body.action === "cell") {
       const index = Number(body.index);
       const value = Number(body.value) as Cell;
-      if (!Number.isInteger(index) || index < 0 || ![0, 1, 2].includes(value)) return NextResponse.json({ error: "ข้อมูลช่องไม่ถูกต้อง" }, { status: 400 });
+      if (!validSeed(body.seed) || !Number.isInteger(index) || index < 0 || ![0, 1, 2].includes(value)) return NextResponse.json({ error: "ข้อมูลช่องไม่ถูกต้อง" }, { status: 400 });
       const path = [String(index)];
       const rows = await sql`
         update nonogram_rooms
         set cells = jsonb_set(cells, ${path}::text[], to_jsonb(${value}::int), false),
             revision = revision + 1,
-            completed = ${Boolean(body.completed)},
+            completed = not exists (
+              select 1
+              from generate_series(0, size * size - 1) as positions(index)
+              where ((solution ->> positions.index)::int = 1)
+                <> ((jsonb_set(cells, ${path}::text[], to_jsonb(${value}::int), false) ->> positions.index)::int = 1)
+            ),
             updated_at = now()
-        where room_code = ${code} and ${index} < size * size
+        where room_code = ${code} and puzzle_seed = ${body.seed} and ${index} < size * size
         returning *`;
-      if (!rows[0]) return NextResponse.json({ error: "ไม่พบห้องนี้" }, { status: 404 });
+      if (!rows[0]) return NextResponse.json({ error: "โจทย์ถูกเปลี่ยนแล้ว กรุณารอซิงก์" }, { status: 409 });
       return NextResponse.json(roomPayload(rows[0] as Record<string, unknown>));
     }
 

@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { generateSolution, pickPuzzleSeed, PUZZLE_SEEDS, PUZZLE_SIZES, type PuzzleSize } from "@/lib/puzzle-generator";
+import { acceptsRevision, enqueueByKey, mergePendingCells, type PendingCell } from "@/lib/room-sync";
 
 type Cell = 0 | 1 | 2;
 type Player = { id: string; name: string; color: string };
-type RoomState = { code: string; size: PuzzleSize; seed: number; solution: number[]; cells: Cell[]; revision: number; completed: boolean; players: Player[] };
+type RoomState = { code: string; size: PuzzleSize; seed: number; solution: number[]; cells: Cell[]; revision: number; completed: boolean; players?: Player[] };
 type ErrorResponse = { error?: string };
 
 const COLORS = ["#3457D5", "#E4572E", "#138A72", "#8A4FFF", "#DB8B00"];
@@ -56,7 +57,6 @@ export default function Home() {
   const [future, setFuture] = useState<Cell[][]>([]);
   const [room, setRoom] = useState("");
   const [players, setPlayers] = useState<Player[]>([]);
-  const [revision, setRevision] = useState(0);
   const [joinCode, setJoinCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [roomOpen, setRoomOpen] = useState(false);
@@ -66,6 +66,15 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState<Cell>(1);
   const identity = useRef<Player>({ id: "", name: "ผู้เล่น", color: COLORS[0] });
+  const roomRef = useRef("");
+  const seedRef = useRef(seed);
+  const solutionRef = useRef(solution);
+  const cellsRef = useRef(cells);
+  const serverCellsRef = useRef(cells);
+  const revisionRef = useRef(0);
+  const mutationIdRef = useRef(0);
+  const pendingCellsRef = useRef(new Map<number, PendingCell<Cell>>());
+  const cellQueuesRef = useRef(new Map<number, Promise<void>>());
   const [me, setMe] = useState<Player>({ id: "", name: "ผู้เล่น", color: COLORS[0] });
   const solved = useMemo(() => isSolved(cells, solution), [cells, solution]);
 
@@ -85,28 +94,44 @@ export default function Home() {
 
   const rowClues = useMemo(() => Array.from({ length: size }, (_, row) => clues(solution.slice(row * size, (row + 1) * size))), [size, solution]);
   const colClues = useMemo(() => Array.from({ length: size }, (_, col) => clues(Array.from({ length: size }, (_, row) => solution[row * size + col]))), [size, solution]);
-  const applyRoom = useCallback((data: RoomState) => {
-    setSize(data.size); setSeed(data.seed); setSolution(data.solution); setCells(data.cells);
-    setRevision(data.revision); setPlayers(data.players || []);
-    if (data.cells.some(Boolean)) setStarted(true);
+  const renderServerWithPending = useCallback(() => {
+    const merged = mergePendingCells(serverCellsRef.current, pendingCellsRef.current);
+    cellsRef.current = merged;
+    setCells(merged);
   }, []);
+
+  const applyRoom = useCallback((data: RoomState, force = false) => {
+    if (data.players) setPlayers(data.players);
+    if (data.code !== roomRef.current || (!force && !acceptsRevision(revisionRef.current, data.revision))) return false;
+
+    revisionRef.current = data.revision;
+    seedRef.current = data.seed;
+    solutionRef.current = data.solution;
+    serverCellsRef.current = data.cells;
+    setSize(data.size);
+    setSeed(data.seed);
+    setSolution(data.solution);
+    renderServerWithPending();
+    if (data.cells.some(Boolean) || pendingCellsRef.current.size) setStarted(true);
+    return true;
+  }, [renderServerWithPending]);
 
   useEffect(() => {
     if (!room) return;
     let active = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       try {
         const response = await fetch(`/api/rooms?code=${room}`, { cache: "no-store" });
         if (!response.ok) return;
         const data = await readJson<RoomState>(response);
-        if (active && data.revision > revision) applyRoom(data);
-        else if (active) setPlayers(data.players || []);
+        if (active) applyRoom(data);
       } catch { /* local board stays available during reconnect */ }
+      finally { if (active) timeout = setTimeout(poll, 700); }
     };
     void poll();
-    const interval = setInterval(poll, 700);
-    return () => { active = false; clearInterval(interval); };
-  }, [room, revision, applyRoom]);
+    return () => { active = false; if (timeout) clearTimeout(timeout); };
+  }, [room, applyRoom]);
 
   useEffect(() => {
     if (!room || !identity.current.id) return;
@@ -116,29 +141,53 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [room]);
 
-  const saveCell = async (index: number, value: Cell, nextCells: Cell[]) => {
-    if (!room) return;
-    try {
-      const response = await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cell", code: room, index, value, completed: isSolved(nextCells, solution) }) });
-      if (response.ok) { const data = await readJson<RoomState>(response); setRevision(data.revision); setStatus("ซิงก์แล้ว"); }
-      else setStatus("รอเชื่อมต่อ…");
-    } catch { setStatus("รอเชื่อมต่อ…"); }
+  const saveCell = (index: number, value: Cell, puzzleSeed: number) => {
+    const roomCode = roomRef.current;
+    if (!roomCode) return;
+
+    const operationId = ++mutationIdRef.current;
+    pendingCellsRef.current.set(index, { id: operationId, value });
+    setStatus("กำลังซิงก์…");
+
+    void enqueueByKey(cellQueuesRef.current, index, async () => {
+      try {
+        const response = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "cell", code: roomCode, seed: puzzleSeed, index, value }),
+        });
+        const data = response.ok ? await readJson<RoomState>(response) : undefined;
+        if (roomRef.current !== roomCode || seedRef.current !== puzzleSeed) return;
+
+        if (pendingCellsRef.current.get(index)?.id === operationId) pendingCellsRef.current.delete(index);
+        if (!data || !applyRoom(data)) renderServerWithPending();
+        setStatus(!response.ok ? "รอเชื่อมต่อ…" : pendingCellsRef.current.size ? "กำลังซิงก์…" : "ซิงก์แล้ว");
+      } catch {
+        if (roomRef.current !== roomCode || seedRef.current !== puzzleSeed) return;
+        if (pendingCellsRef.current.get(index)?.id === operationId) pendingCellsRef.current.delete(index);
+        renderServerWithPending();
+        setStatus("รอเชื่อมต่อ…");
+      }
+    });
   };
 
   const paint = (index: number, value?: Cell, remember = true) => {
-    if (solved || index < 0 || index >= cells.length) return;
-    const nextValue = value ?? ((cells[index] + 1) % 3 as Cell);
-    if (cells[index] === nextValue) return;
-    const previous = cells;
-    const next = [...cells]; next[index] = nextValue;
-    if (remember) { setHistoryStack((items) => [...items.slice(-39), previous]); setFuture([]); }
-    setCells(next); setStarted(true); void saveCell(index, nextValue, next);
+    const current = cellsRef.current;
+    if (isSolved(current, solutionRef.current) || index < 0 || index >= current.length) return;
+    const nextValue = value ?? ((current[index] + 1) % 3 as Cell);
+    if (current[index] === nextValue) return;
+    const next = [...current]; next[index] = nextValue;
+    if (remember && !roomRef.current) { setHistoryStack((items) => [...items.slice(-39), current]); setFuture([]); }
+    cellsRef.current = next;
+    setCells(next);
+    setStarted(true);
+    saveCell(index, nextValue, seedRef.current);
   };
 
   const startDrag = (index: number, event: React.PointerEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    const value = ((cells[index] + 1) % 3) as Cell;
+    const value = ((cellsRef.current[index] + 1) % 3) as Cell;
     setDragging(true); setDragValue(value); paint(index, value, true);
   };
 
@@ -147,12 +196,27 @@ export default function Home() {
     const nextSeed = pickPuzzleSeed(nextSize, randomValue, nextSize === size ? seed : undefined);
     const nextSolution = generateSolution(nextSize, nextSeed);
     const nextCells: Cell[] = Array(nextSize * nextSize).fill(0);
+    const roomCode = roomRef.current;
+
+    if (roomCode) {
+      setStatus("กำลังเปลี่ยนโจทย์…");
+      try {
+        const response = await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "replace", code: roomCode, size: nextSize, seed: nextSeed, solution: nextSolution, cells: nextCells }) });
+        if (!response.ok) { setStatus("เปลี่ยนโจทย์ไม่สำเร็จ"); return; }
+        pendingCellsRef.current.clear();
+        const data = await readJson<RoomState>(response);
+        applyRoom(data, true);
+        setHistoryStack([]); setFuture([]); setElapsed(0); setStarted(false); setStatus("ซิงก์แล้ว");
+      } catch { setStatus("รอเชื่อมต่อ…"); }
+      return;
+    }
+
+    seedRef.current = nextSeed;
+    solutionRef.current = nextSolution;
+    cellsRef.current = nextCells;
+    serverCellsRef.current = nextCells;
     setSize(nextSize); setSeed(nextSeed); setSolution(nextSolution); setCells(nextCells);
     setHistoryStack([]); setFuture([]); setElapsed(0); setStarted(false);
-    if (room) {
-      const response = await fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "replace", code: room, size: nextSize, seed: nextSeed, solution: nextSolution, cells: nextCells }) });
-      if (response.ok) applyRoom(await readJson<RoomState>(response));
-    }
   };
 
   const createRoom = async () => {
@@ -163,6 +227,11 @@ export default function Home() {
     identity.current.name = displayName.trim() || identity.current.name;
     setMe({ ...identity.current });
     localStorage.setItem("nonogram-player-name", identity.current.name);
+    roomRef.current = roomCode;
+    revisionRef.current = 0;
+    serverCellsRef.current = cellsRef.current;
+    pendingCellsRef.current.clear();
+    setHistoryStack([]); setFuture([]);
     setRoom(roomCode); setRoomOpen(false); setStatus("ห้องออนไลน์แล้ว");
     window.history.replaceState(null, "", `?room=${roomCode}`);
   };
@@ -175,7 +244,11 @@ export default function Home() {
     identity.current.name = displayName.trim() || identity.current.name;
     setMe({ ...identity.current });
     localStorage.setItem("nonogram-player-name", identity.current.name);
-    applyRoom(data); setRoom(target); setRoomOpen(false); setStatus("เข้าห้องแล้ว");
+    roomRef.current = target;
+    revisionRef.current = data.revision;
+    pendingCellsRef.current.clear();
+    setHistoryStack([]); setFuture([]); setElapsed(0);
+    applyRoom(data, true); setRoom(target); setRoomOpen(false); setStatus("เข้าห้องแล้ว");
     window.history.replaceState(null, "", `?room=${target}`);
   };
 
@@ -184,14 +257,17 @@ export default function Home() {
     setStatus("คัดลอกลิงก์ห้องแล้ว");
   };
 
-  const syncWholeBoard = (nextCells: Cell[]) => {
-    if (!room) return;
-    void fetch("/api/rooms", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "replace", code: room, size, seed, solution, cells: nextCells }) })
-      .then(async (response) => { if (response.ok) applyRoom(await readJson<RoomState>(response)); })
-      .catch(() => setStatus("รอเชื่อมต่อ…"));
+  const undo = () => {
+    if (roomRef.current) return;
+    const previous = historyStack.at(-1); if (!previous) return;
+    const current = cellsRef.current;
+    setFuture((items) => [current, ...items]); cellsRef.current = previous; setCells(previous); setHistoryStack((items) => items.slice(0, -1));
   };
-  const undo = () => { const previous = historyStack.at(-1); if (!previous) return; setFuture((items) => [cells, ...items]); setCells(previous); setHistoryStack((items) => items.slice(0, -1)); syncWholeBoard(previous); };
-  const redo = () => { const next = future[0]; if (!next) return; setHistoryStack((items) => [...items, cells]); setCells(next); setFuture((items) => items.slice(1)); syncWholeBoard(next); };
+  const redo = () => {
+    if (roomRef.current) return;
+    const next = future[0]; if (!next) return;
+    setHistoryStack((items) => [...items, cellsRef.current]); cellsRef.current = next; setCells(next); setFuture((items) => items.slice(1));
+  };
 
   const cellSize = size <= 5 ? 52 : size <= 10 ? 38 : size <= 15 ? 29 : size <= 20 ? 24 : 21;
   const boardStyle = { "--cell": `${cellSize}px`, "--rows": size, "--cols": size, "--row-clues": Math.max(...rowClues.map((item) => item.length)), "--col-clues": Math.max(...colClues.map((item) => item.length)) } as React.CSSProperties;
@@ -228,13 +304,13 @@ export default function Home() {
           <div className="game-heading"><div><p className="eyebrow">PUZZLE #{seed}</p><h1>{size} × {size} Nonogram</h1></div><div className="game-meta"><span><Clock3 /> {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</span></div></div>
           <div className="toolbar" role="toolbar" aria-label="คำแนะนำและประวัติการเล่น">
             <span className="cycle-hint"><i className="cycle-filled" /> เติม <b>→</b><X /> กากบาท <b>→</b><i className="cycle-empty" /> ว่าง</span><i className="toolbar-divider" />
-            <button onClick={undo} disabled={!historyStack.length} aria-label="ย้อนกลับ"><Undo2 /></button><button onClick={redo} disabled={!future.length} aria-label="ทำซ้ำ"><Redo2 /></button>
+            <button onClick={undo} disabled={Boolean(room) || !historyStack.length} aria-label={room ? "ย้อนกลับใช้ได้เฉพาะโหมดเดี่ยว" : "ย้อนกลับ"}><Undo2 /></button><button onClick={redo} disabled={Boolean(room) || !future.length} aria-label={room ? "ทำซ้ำใช้ได้เฉพาะโหมดเดี่ยว" : "ทำซ้ำ"}><Redo2 /></button>
           </div>
           <div className="board-scroll"><div className="nonogram-board" style={boardStyle} onContextMenu={(event) => event.preventDefault()}>
             <div className="corner-cell"><span>ROWS</span><span>COLS</span></div>
             <div className="column-clues">{colClues.map((items, col) => <div key={col} className={`col-clue ${col > 0 && col % 5 === 0 ? "major-left" : ""}`}>{items.map((item, i) => <span key={i}>{item}</span>)}</div>)}</div>
             <div className="row-clues">{rowClues.map((items, row) => <div key={row} className={`row-clue ${row > 0 && row % 5 === 0 ? "major-top" : ""}`}>{items.map((item, i) => <span key={i}>{item}</span>)}</div>)}</div>
-            <div className="cells" style={{ gridTemplateColumns: `repeat(${size}, var(--cell))` }}>{cells.map((value, index) => { const row = Math.floor(index / size); const col = index % size; const stateLabel = value === 1 ? "เติมแล้ว" : value === 2 ? "กากบาท" : "ว่าง"; return <button key={index} aria-label={`แถว ${row + 1} คอลัมน์ ${col + 1} ${stateLabel}`} className={`cell state-${value} ${row > 0 && row % 5 === 0 ? "major-top" : ""} ${col > 0 && col % 5 === 0 ? "major-left" : ""}`} onPointerDown={(event) => startDrag(index, event)} onPointerEnter={() => dragging && paint(index, dragValue, false)} onContextMenu={(event) => { event.preventDefault(); paint(index, cells[index] === 2 ? 0 : 2); }}>{value === 2 && <X />}</button>; })}</div>
+            <div className="cells" style={{ gridTemplateColumns: `repeat(${size}, var(--cell))` }}>{cells.map((value, index) => { const row = Math.floor(index / size); const col = index % size; const stateLabel = value === 1 ? "เติมแล้ว" : value === 2 ? "กากบาท" : "ว่าง"; return <button key={index} aria-label={`แถว ${row + 1} คอลัมน์ ${col + 1} ${stateLabel}`} className={`cell state-${value} ${row > 0 && row % 5 === 0 ? "major-top" : ""} ${col > 0 && col % 5 === 0 ? "major-left" : ""}`} onPointerDown={(event) => startDrag(index, event)} onPointerEnter={() => dragging && paint(index, dragValue, false)} onContextMenu={(event) => { event.preventDefault(); paint(index, cellsRef.current[index] === 2 ? 0 : 2); }}>{value === 2 && <X />}</button>; })}</div>
           </div></div>
           {solved && <div className="success-card"><span><Check /></span><div><b>สำเร็จ!</b><p>ทุกคนช่วยกันแก้ภาพนี้เรียบร้อยแล้ว</p></div><Button onClick={() => replacePuzzle(size)}>โจทย์ถัดไป</Button></div>}
         </section>
