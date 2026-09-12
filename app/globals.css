@@ -79,7 +79,8 @@ button { -webkit-tap-highlight-color:transparent; }
 .cycle-empty { background:#fff; }
 .toolbar-divider { height:22px; width:1px; background:#ddd; margin:0 3px; }
 .board-scroll { width:100%; overflow:auto; padding:4px 4px 12px; }
-.nonogram-board { width:max-content; margin:auto; display:grid; grid-template-columns:calc(var(--row-clues) * 24px + 22px) calc(var(--cols) * var(--cell)); grid-template-rows:calc(var(--col-clues) * 22px + 20px) calc(var(--rows) * var(--cell)); border:3px solid var(--ink); background:#fff; user-select:none; touch-action:none; box-shadow:8px 8px 0 #e4e5df; }
+.nonogram-board { width:max-content; margin:auto; display:grid; grid-template-columns:calc(var(--row-clues) * 24px + 22px) calc(var(--cols) * var(--cell)); grid-template-rows:calc(var(--col-clues) * 22px + 20px) calc(var(--rows) * var(--cell)); border:3px solid var(--ink); background:#fff; user-select:none; touch-action:pan-x pan-y; box-shadow:8px 8px 0 #e4e5df; }
+.nonogram-board.paint-lock { touch-action:none; }
 .corner-cell { border-right:3px solid var(--ink); border-bottom:3px solid var(--ink); position:relative; background:#f5f5f1; overflow:hidden; }
 .corner-cell:after { content:""; position:absolute; width:160%; height:1px; background:#a9aaa6; left:-25%; top:50%; transform:rotate(25deg); }
 .corner-cell span { position:absolute; font-size:8px; font-weight:900; letter-spacing:.09em; color:#989a96; }
@@ -99,6 +100,10 @@ button { -webkit-tap-highlight-color:transparent; }
 .cell:hover { background:#e9edff; }
 .cell.state-1 { background:var(--ink); box-shadow:inset 0 0 0 1px #fff2; }
 .cell.state-2 svg { width:65%; stroke-width:1.8; }
+.cell.peer-cursor { outline:3px solid var(--peer-cursor); outline-offset:-3px; }
+.paint-toggle { display:none; }
+.paint-toggle.is-on { background:#edf0fd; color:#233d9d; }
+@media (pointer:coarse) { .paint-toggle { display:flex; } }
 .major-left { border-left:3px solid var(--ink)!important; }
 .major-top { border-top:3px solid var(--ink)!important; }
 .success-card { width:min(600px,100%); margin:16px auto 0; border:2px solid var(--ink); background:#fff; padding:15px; display:grid; grid-template-columns:auto 1fr auto; gap:13px; align-items:center; box-shadow:5px 5px 0 #cdd5f6; }
